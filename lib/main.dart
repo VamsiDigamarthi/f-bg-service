@@ -4,16 +4,30 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
+
+Future<void> requestBatteryOptimization() async {
+  if (await Permission.ignoreBatteryOptimizations.isDenied) {
+    await Permission.ignoreBatteryOptimizations.request();
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // // Register the overlay entry point
+  // FlutterOverlayWindow.setOverlayEntryPoint(overlayWidget);
+
   await Permission.notification.isDenied.then((value) {
     if (value) {
       Permission.notification.request();
     }
   });
+  await requestBatteryOptimization();
   await initializeService();
   final prefs = await SharedPreferences.getInstance();
   final bool serviceRunning = prefs.getBool('serviceRunning') ?? false;
+
   if (serviceRunning) {
     await FlutterBackgroundService().startService();
   }
@@ -46,13 +60,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
+  bool _isOverlayVisible = false;
 
   // Function to start the service and update SharedPreferences
   Future<void> _startService() async {
@@ -60,6 +68,41 @@ class _MyHomePageState extends State<MyHomePage> {
     await service.startService();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('serviceRunning', true);
+  }
+
+  Future<void> _toggleOverlay() async {
+    // Check if permission is already granted
+    bool isPermissionGranted = await FlutterOverlayWindow.isPermissionGranted();
+    print("Permission granted: $isPermissionGranted");
+
+    if (isPermissionGranted) {
+      // Permission is granted, toggle the overlay
+      setState(() {
+        _isOverlayVisible = !_isOverlayVisible;
+      });
+      FlutterBackgroundService().invoke("toggleOverlay", {
+        "show": _isOverlayVisible,
+      });
+    } else {
+      // Request permission
+      bool? granted = await FlutterOverlayWindow.requestPermission();
+      if (granted == true) {
+        // Permission granted, toggle the overlay
+        setState(() {
+          _isOverlayVisible = !_isOverlayVisible;
+        });
+        FlutterBackgroundService().invoke("toggleOverlay", {
+          "show": _isOverlayVisible,
+        });
+      } else {
+        // Permission denied, show a snackbar
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("System Alert Window permission denied"),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -91,14 +134,13 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: _startService, // New button to start service
               child: const Text("Start Service"),
             ),
+            ElevatedButton(
+              onPressed: _toggleOverlay,
+              child: Text(_isOverlayVisible ? "Hide Overlay" : "Show Overlay"),
+            ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
